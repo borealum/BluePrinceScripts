@@ -9,7 +9,8 @@ I think it originally started just as a dump to look for objects that interact w
 
 The other script CreateGUIDMapping.py creates a .json file so the first script can map GUIDs of content files to their normal readable file names.
 
-Usage: 
+Usage:
+
 0. Preferably close the Unity project if you have it open so it doesn't start auto-importing files from the directory.
 1. Put the scripts into the /Assets folder of the exported project.
 2. (optional) Run CreateGUIDMapping.py to guid_to_asset.json for GUID mappings.

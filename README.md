@@ -1,7 +1,7 @@
-A place to store Blue Prine related stuff.
-folders:
-Datamine scripts:
-Not made by me, but donated by an anonymous person, thank you.
+A place to store Blue Prine related stuff.<br/>
+folders:<br/>
+Datamine scripts - Not made by me, but donated by an anonymous person, thank you. I just do some additions to it.<br/>
+Satellite map - some results of top-down orthogaphic camera screenshots. Moved here: https://drive.google.com/drive/folders/1G_usYC2pzVxFPHaAAn1NZJg_sjNUh_tu <br/>
 
 The FindGemsInTheDataMine.py script goes through all the objects inside Mount Holly Estate.unity and GameObject/*.prefab files and outputs a big csv file. The script has some additional options of filtering out objects to output based on names of stuff in the object tree path that you can edit yourself. It's well commented on why some stuff is done the way it is. I guess you could modify it a little and reuse on any Unity game that you export with AssetRipper.
 
@@ -17,4 +17,4 @@ Usage:
 3. Run FindGemsInTheDataMine.py to create the_white_print.csv.
 4. Open the_white_print.csv and read.
 
-I recommed putting it into Excel or something and order it by the 1st column and make filters on the columns to see just what you want to. Maybe an interesting thing for more casual viewing is filtering out where the m_text column is not empty. A lot will probably still be meaningless. Then you can compare texts in room objects to the real texts that are shown when you click on the document under .../UI Documents/DOCUMENTS/...
+I recommed putting it into Excel or something and order it by the 1st column and make filters on the columns to see just what you want to. Maybe an interesting thing for more casual viewing is filtering out where the m_text column is not empty. A lot will probably still be not usefull for the general person. Then you can compare texts in room objects to the real texts that are shown when you click on the document under .../UI Documents/DOCUMENTS/...

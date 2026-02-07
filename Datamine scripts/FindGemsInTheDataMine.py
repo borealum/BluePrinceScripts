@@ -6,9 +6,9 @@ import glob
 from typing import Dict, List, Tuple
 
 # ----------------------------- Config ---------------------------------
-
 UNITY_FILE = "Mount Holly Estate.unity"
 GAMEOBJECT_FOLDER = "GameObject"  # nested directory containing prefabs
+MONOBEHAVIOUR_FOLDER = "MonoBehaviour" 
 CSV_OUTPUT = "the_white_print.csv"
 
 # IMPORTANT: keep duplicates across categories for the same GO
@@ -67,6 +67,11 @@ RX_ANIM_CLIP    = re.compile(r'(?i)m_(?:Default)?Clip:\s*\{[^}]*guid:\s*([0-9a-f
 RX_AUDIO_HDR    = re.compile(r'(?m)^\s*AudioSource\s*:')
 RX_AUDIO_CLIP   = re.compile(r'(?mi)m_[A-Za-z]*[Cc]lip:\s*\{[^}]*guid:\s*([0-9a-fA-F]+)')
 
+RX_FONT_HDR     = re.compile(r'(?m)^\s*m_fontAsset\s*:')
+RX_FONT_FONT    = re.compile(r'(?i)m_fontAsset:\s*\{[^}]*guid:\s*([0-9a-fA-F]+)')
+RX_FONT_ATLAS   = re.compile(r'(?i)atlas:\s*\{[^}]*guid:\s*([0-9a-fA-F]+)')
+RX_FONT_ATLASTEXTURES = re.compile(r'm_AtlasTextures:\s*-\s*\{[^}]*guid:\s*([0-9a-fA-F]+)', re.MULTILINE)
+
 # FSM slicing (WHY: scope-limited; no YAML parsing)
 def _slice_section(block: str, key: str) -> str:
     m = re.search(rf'(?m)^(?P<ind>\s*){re.escape(key)}:\s*$', block)
@@ -102,6 +107,39 @@ def load_guid_to_asset(filename="guid_to_asset.json") -> Dict[str, str]:
     return {}
 
 GUID_TO_ASSET = load_guid_to_asset()
+
+def load_font_to_atlas():
+    """
+    WHY: creates a dictionary to map font assets to atlas image file name, probably will break without existing guid_to_asset.json
+    """
+    fontToAtlas = {}
+    for asset_path in glob.glob(os.path.join(MONOBEHAVIOUR_FOLDER, "**", "*.asset"), recursive=True):
+            with open(asset_path, "r", encoding="utf-8") as f:
+                text = f.read()
+                # Segment into unity objects
+                unity_objects = []
+                for m in RX_OBJ_HEADER.finditer(text):
+                    start = m.start()
+                    end = text.find('---', start + 1)
+                    if end == -1:
+                        end = len(text)
+                    unity_objects.append((m.group(1), m.group(2), text[start:end]))
+                for typeid, fileid, block in unity_objects:
+                    #Borealum: sometimes it is missing in "atlas: ", but never in atlasTextures
+                    #mcol = RX_FONT_ATLAS.search(block)
+                    #if mcol:
+                        #col_type = mcol.group(1)
+                        #print(f,"atlas", col_type)
+                    m = RX_FONT_ATLASTEXTURES.search(block)
+                    if m:
+                        guid = m.group(1)
+                        name = GUID_TO_ASSET.get(guid)
+                        #print(os.path.basename(asset_path), name if name else guid)
+                        fontToAtlas[os.path.basename(asset_path)] = name if name else guid
+                        continue;
+    return fontToAtlas
+            
+FONT_TO_ATLAS = load_font_to_atlas()
 
 # ---------------------- Extractors (scripts, text, FSM) ----------------------
 
@@ -194,7 +232,7 @@ def collect_fsm_state_and_event_items(block: str) -> Tuple[List[str], List[str]]
 
 def scan_components(unity_objects):
     """One pass to gather colliders, animations, audio keyed by component fileID."""
-    colliders_by_fileid, animations_by_fileid, audio_by_fileid = {}, {}, {}
+    colliders_by_fileid, animations_by_fileid, audio_by_fileid, fonts_by_fileid = {}, {}, {}, {}
     for typeid, fileid, block in unity_objects:
         # Colliders
         mcol = RX_ANY_COLLIDER.search(block)
@@ -242,7 +280,23 @@ def scan_components(unity_objects):
                 "Note": clip_note
             }
             continue
-    return colliders_by_fileid, animations_by_fileid, audio_by_fileid
+        # Fonts
+        if RX_FONT_HDR.search(block):
+           g = RX_FONT_FONT.search(block)
+           font = ""
+           if g:
+               guid = g.group(1)
+               name = GUID_TO_ASSET.get(guid)
+               font = f'Font: {name}' if name else f'Font GUID:{guid}'
+               name = FONT_TO_ATLAS.get(name)
+               if(name):
+                  font += f', Atlas: {name}'
+           fonts_by_fileid[fileid] = {
+               "Type": "TMPFont",
+               "Note": font
+           }
+           continue
+    return colliders_by_fileid, animations_by_fileid, audio_by_fileid, fonts_by_fileid
 
 # ------------------------- Row assembly helpers -------------------------
 
@@ -273,7 +327,8 @@ def build_row(source_name: str,
               scripts: List[str],
               anim_note: str,
               audio_note: str,
-              text_list: List[str]) -> dict:
+              text_list: List[str],
+              font_note: str) -> dict:
     """Single place defines CSV schema; avoids drift across branches."""
     name_with_src = f"{source_name}: {full_path}" if full_path else f"{source_name}:"
     return {
@@ -289,6 +344,7 @@ def build_row(source_name: str,
         "Scripts": "; ".join(scripts or []),
         "Animation": anim_note or "",
         "Audio": audio_note or "",
+        "Font": font_note or "",
         "Text": " | ".join(text_list or []),
     }
 
@@ -423,10 +479,10 @@ def process_unity_text(text: str, source_name: str) -> List[dict]:
         return "/".join(names) if names else ""
 
     # Component maps by component fileID
-    colliders_by_fileid, animations_by_fileid, audio_by_fileid = scan_components(unity_objects)
+    colliders_by_fileid, animations_by_fileid, audio_by_fileid, fonts_by_fileid = scan_components(unity_objects)
 
     # GO -> lists of component IDs for each category
-    go_colliders, go_animations, go_audio = {}, {}, {}
+    go_colliders, go_animations, go_audio, go_fonts = {}, {}, {}, {}
     for go in gameobjects:
         goid = go["objectID"]
         cols = [cid for cid in go["component_fileIDs"] if cid in colliders_by_fileid]
@@ -438,6 +494,9 @@ def process_unity_text(text: str, source_name: str) -> List[dict]:
         auds = [cid for cid in go["component_fileIDs"] if cid in audio_by_fileid]
         if auds:
             go_audio[goid] = auds
+        fonts = [cid for cid in go["component_fileIDs"] if cid in fonts_by_fileid]
+        if fonts:
+            go_fonts[goid] = fonts
 
     # Fast GO lookup for FSM and scripts
     go_fsm_block: Dict[str, str] = {}
@@ -468,9 +527,9 @@ def process_unity_text(text: str, source_name: str) -> List[dict]:
         has_trig   = any(colliders_by_fileid[cid].get("m_IsTrigger") == "1" for cid in go_colliders.get(goid, [])) if has_coll else False
         has_anim   = (goid in go_animations)
         has_audio  = (goid in go_audio)
-        has_media  = (has_anim or has_audio)
+        has_font   = (goid in go_fonts)
+        has_media  = (has_anim or has_audio or has_font)
         has_scripts= (goid in go_scripts)
-
         scripts = extract_script_names_for_go(go, monobeh_by_fileid)
         text_list = extract_text_content_for_go(go, monobeh_by_fileid)
 
@@ -480,24 +539,27 @@ def process_unity_text(text: str, source_name: str) -> List[dict]:
             collider_info = first_collider_for(go, colliders_by_fileid) if has_coll else {"ColliderType": "", "m_IsTrigger": "", "m_Enabled": ""}
             anim_note  = first_note_for(goid, go_animations, animations_by_fileid) if has_anim else ""
             audio_note = first_note_for(goid, go_audio, audio_by_fileid) if has_audio else ""
-            rows.append(build_row(source_name, full_path, go, goid, collider_info, fsm_states, event_items, scripts, anim_note, audio_note, text_list))
+            font_note = first_note_for(goid, go_fonts, fonts_by_fileid) if has_font else ""
+            rows.append(build_row(source_name, full_path, go, goid, collider_info, fsm_states, event_items, scripts, anim_note, audio_note, text_list, font_note))
 
         # 2) Trigger row (even if FSM exists)
         if has_trig:
             cinfo = first_collider_for(go, colliders_by_fileid)
             anim_note  = first_note_for(goid, go_animations, animations_by_fileid) if has_anim else ""
             audio_note = first_note_for(goid, go_audio, audio_by_fileid) if has_audio else ""
-            rows.append(build_row(source_name, full_path, go, goid, cinfo, [], [], scripts, anim_note, audio_note, text_list))
+            font_note = first_note_for(goid, go_fonts, fonts_by_fileid) if has_font else ""
+            rows.append(build_row(source_name, full_path, go, goid, cinfo, [], [], scripts, anim_note, audio_note, text_list, font_note))
 
         # 3) Media row (Animation or Audio)
         if has_media:
             anim_note  = first_note_for(goid, go_animations, animations_by_fileid) if has_anim else ""
             audio_note = first_note_for(goid, go_audio, audio_by_fileid) if has_audio else ""
-            rows.append(build_row(source_name, full_path, go, goid, {"ColliderType":"", "m_IsTrigger":"", "m_Enabled":""}, [], [], scripts, anim_note, audio_note, text_list))
-
+            font_note = first_note_for(goid, go_fonts, fonts_by_fileid) if has_font else ""
+            rows.append(build_row(source_name, full_path, go, goid, {"ColliderType":"", "m_IsTrigger":"", "m_Enabled":""}, [], [], scripts, anim_note, audio_note, text_list, font_note))
+            
         # 4) Scripts row
         if has_scripts:
-            rows.append(build_row(source_name, full_path, go, goid, {"ColliderType":"", "m_IsTrigger":"", "m_Enabled":""}, [], [], scripts, "", "", text_list))
+            rows.append(build_row(source_name, full_path, go, goid, {"ColliderType":"", "m_IsTrigger":"", "m_Enabled":""}, [], [], scripts, "", "", text_list, ""))
 
     return rows
 
@@ -505,7 +567,7 @@ def process_unity_text(text: str, source_name: str) -> List[dict]:
 
 CSV_FIELDNAMES = [
     "Name", "objectID", "Layer", "ColliderType", "m_IsTrigger", "m_Enabled",
-    "FSM", "Events", "m_IsActive", "Scripts", "Animation", "Audio", "Text"
+    "FSM", "Events", "m_IsActive", "Scripts", "Animation", "Audio", "Text", "Font"
 ]
 
 def main():

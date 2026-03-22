@@ -80,6 +80,8 @@ RX_FONT_ATLASTEXTURES = re.compile(r'm_AtlasTextures:\s*-\s*\{[^}]*guid:\s*([0-9
 RX_FONT_MATERIALS = re.compile(r'm_Materials:\s*((?:\s*-\s*\{[^}]*\}\s*)+)', re.MULTILINE)
 RX_GUID = re.compile(r'guid:\s*([0-9a-fA-F]+)')
 
+RX_TARGETCOLOR = re.compile(r'(?i)TargetColor:\s*\{[^}]*guid:\s*([0-9a-fA-F]+)')
+
 # FSM slicing (WHY: scope-limited; no YAML parsing)
 def _slice_section(block: str, key: str) -> str:
     m = re.search(rf'(?m)^(?P<ind>\s*){re.escape(key)}:\s*$', block)
@@ -240,7 +242,7 @@ def collect_fsm_state_and_event_items(block: str) -> Tuple[List[str], List[str]]
 
 def scan_components(unity_objects):
     """One pass to gather colliders, animations, audio keyed by component fileID."""
-    colliders_by_fileid, animations_by_fileid, audio_by_fileid, fonts_by_fileid = {}, {}, {}, {}
+    colliders_by_fileid, animations_by_fileid, audio_by_fileid, fonts_by_fileid, colors_by_fileid = {}, {}, {}, {}, {}
     for typeid, fileid, block in unity_objects:
         # Colliders
         mcol = RX_ANY_COLLIDER.search(block)
@@ -305,7 +307,19 @@ def scan_components(unity_objects):
                "Note": font
            }
            continue
-    return colliders_by_fileid, animations_by_fileid, audio_by_fileid, fonts_by_fileid
+        # Colors
+        g = RX_TARGETCOLOR.search(block)
+        if g:
+            guid = g.group(1)
+            name = GUID_TO_ASSET.get(guid)
+            color = f'{name}' if name else f'GUID:{guid}'
+            colors_by_fileid[fileid] = {
+               "Type": "ColorblindObject",
+               "Note": color
+            }
+            
+        
+    return colliders_by_fileid, animations_by_fileid, audio_by_fileid, fonts_by_fileid, colors_by_fileid
 
 # ------------------------- Row assembly helpers -------------------------
 
@@ -338,7 +352,8 @@ def build_row(source_name: str,
               audio_note: str,
               text_list: List[str],
               font_note: str,
-              materials_note: str) -> dict:
+              materials_note: str,
+              color_note: str,) -> dict:
     """Single place defines CSV schema; avoids drift across branches."""
     name_with_src = f"{source_name}: {full_path}" if full_path else f"{source_name}:"
     return {
@@ -357,6 +372,7 @@ def build_row(source_name: str,
         "Font": font_note or "",
         "Text": " | ".join(text_list or []),
         "Materials": materials_note or "",
+        "Colors":color_note
     }
 
 # ------------------------- Exact-duplicate remover (order-preserving) -------------------------
@@ -503,10 +519,10 @@ def process_unity_text(text: str, source_name: str) -> List[dict]:
         return "/".join(names) if names else ""
 
     # Component maps by component fileID
-    colliders_by_fileid, animations_by_fileid, audio_by_fileid, fonts_by_fileid = scan_components(unity_objects)
+    colliders_by_fileid, animations_by_fileid, audio_by_fileid, fonts_by_fileid, colors_by_fileid = scan_components(unity_objects)
 
     # GO -> lists of component IDs for each category
-    go_colliders, go_animations, go_audio, go_fonts, go_materials = {}, {}, {}, {}, {}
+    go_colliders, go_animations, go_audio, go_fonts, go_materials, go_colors = {}, {}, {}, {}, {}, {}
     for go in gameobjects:
         goid = go["objectID"]
         cols = [cid for cid in go["component_fileIDs"] if cid in colliders_by_fileid]
@@ -521,6 +537,9 @@ def process_unity_text(text: str, source_name: str) -> List[dict]:
         fonts = [cid for cid in go["component_fileIDs"] if cid in fonts_by_fileid]
         if fonts:
             go_fonts[goid] = fonts
+        color = [cid for cid in go["component_fileIDs"] if cid in colors_by_fileid]
+        if color:
+            go_colors[goid] = color
             
         tmp = ''
         for cid in go["component_fileIDs"]:
@@ -560,7 +579,8 @@ def process_unity_text(text: str, source_name: str) -> List[dict]:
         has_audio  = (goid in go_audio)
         has_font   = (goid in go_fonts)
         has_material=(goid in go_materials)
-        has_media  = (has_anim or has_audio or has_font or has_material)
+        has_color  = (goid in go_colors)
+        has_media  = (has_anim or has_audio or has_font or has_material or has_color)
         has_scripts= (goid in go_scripts)
         has_any_components = has_fsm or has_trig or has_media or has_scripts
         
@@ -568,6 +588,7 @@ def process_unity_text(text: str, source_name: str) -> List[dict]:
         anim_note  = first_note_for(goid, go_animations, animations_by_fileid) if has_anim else ""
         audio_note = first_note_for(goid, go_audio, audio_by_fileid) if has_audio else ""
         font_note = first_note_for(goid, go_fonts, fonts_by_fileid) if has_font else ""
+        color_note = first_note_for(goid, go_colors, colors_by_fileid) if has_color else ""
         material_note = go_materials[goid] if has_material else ""
         text_list = extract_text_content_for_go(go, monobeh_by_fileid)
 
@@ -575,31 +596,31 @@ def process_unity_text(text: str, source_name: str) -> List[dict]:
         if has_fsm:
             fsm_states, event_items = collect_fsm_state_and_event_items(go_fsm_block[goid])
             collider_info = first_collider_for(go, colliders_by_fileid) if has_coll else {"ColliderType": "", "m_IsTrigger": "", "m_Enabled": ""}
-            rows.append(build_row(source_name, full_path, go, goid, collider_info, fsm_states, event_items, scripts, anim_note, audio_note, text_list, font_note, material_note))
+            rows.append(build_row(source_name, full_path, go, goid, collider_info, fsm_states, event_items, scripts, anim_note, audio_note, text_list, font_note, material_note, color_note))
 
         # 2) Trigger row (even if FSM exists)
         if has_trig:
             cinfo = first_collider_for(go, colliders_by_fileid)
-            rows.append(build_row(source_name, full_path, go, goid, cinfo, [], [], scripts, anim_note, audio_note, text_list, font_note, material_note))
+            rows.append(build_row(source_name, full_path, go, goid, cinfo, [], [], scripts, anim_note, audio_note, text_list, font_note, material_note, color_note))
 
         # 3) Media row (Animation or Audio)
         if has_media:
-            rows.append(build_row(source_name, full_path, go, goid, {"ColliderType":"", "m_IsTrigger":"", "m_Enabled":""}, [], [], scripts, anim_note, audio_note, text_list, font_note, material_note))
+            rows.append(build_row(source_name, full_path, go, goid, {"ColliderType":"", "m_IsTrigger":"", "m_Enabled":""}, [], [], scripts, anim_note, audio_note, text_list, font_note, material_note, color_note))
             
         # 4) Scripts row
         if has_scripts:
-            rows.append(build_row(source_name, full_path, go, goid, {"ColliderType":"", "m_IsTrigger":"", "m_Enabled":""}, [], [], scripts, "", "", text_list, "", ""))
+            rows.append(build_row(source_name, full_path, go, goid, {"ColliderType":"", "m_IsTrigger":"", "m_Enabled":""}, [], [], scripts, "", "", text_list, "", "", ""))
 
         # in case I want to output and see rows for hierarchy objects that have no other detected components, just to know they exist
         #if not has_any_components:
-        #    rows.append(build_row(source_name, full_path, go, goid, {"ColliderType":"", "m_IsTrigger":"", "m_Enabled":""}, [], [], "", "", "", "", "", ""))
+        #    rows.append(build_row(source_name, full_path, go, goid, {"ColliderType":"", "m_IsTrigger":"", "m_Enabled":""}, [], [], "", "", "", "", "", "", ""))
     return rows
 
 # --------------------------------- Main ---------------------------------
 
 CSV_FIELDNAMES = [
     "Name", "objectID", "Layer", "ColliderType", "m_IsTrigger", "m_Enabled",
-    "FSM", "Events", "m_IsActive", "Scripts", "Animation", "Audio", "Text", "Font", "Materials"
+    "FSM", "Events", "m_IsActive", "Scripts", "Animation", "Audio", "Text", "Font", "Materials", "Colors"
 ]
 
 def main():

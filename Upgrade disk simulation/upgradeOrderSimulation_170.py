@@ -14,11 +14,12 @@ import random
 #11 "Nursery", 
 #12 "Parlor", 
 #13 "Spare Room", 
-#14 "Storeroom"
+#14 "Storeroom",
+#15 "Spare Room 2"
 
 roomNames = ["Aquarium", "Billiard Room", "Boudoir", "Bunk Room", "Cloister",
  "Closet", "Courtyard", "Guest Bedroom", "Hallway", "Mail Room",
- "Nook", "Nursery", "Parlor", "Spare Room", "Storeroom"]
+ "Nook", "Nursery", "Parlor", "Spare Room", "Storeroom", "Spare Room 2"]
 
 #True False
 V_Mode = False
@@ -36,41 +37,41 @@ normalDraftedRequired = [2,5,1,2,1, 0,1,1,0,4, 1,1,2,1,0]
 orderRemapNormal = [45,46,47,48,51,52,53,54,55,57,44]
 upgradeOrders = [
 #day 1
-[63],[53],[55],[51],[62],[64],[56],[59],[58],[52],[57],[61],[50],[60],[54],
-[13], [3], [5], [1],[12],[14], [6], [9], [8], [2], [7],[11], [0],[10],
+[63,15],[53],[55],[51],[62],[64],[56],[59],[58],[52],[57],[61],[50],[60],[54],
+[13,15], [3], [5], [1],[12],[14], [6], [9], [8], [2], [7],[11], [0],[10],
 #veteran
-[14,7,13,10],
-[13,2,8,9],
-[6,12,13,7,11],
+[14,7,13,15,10],
+[13,2,8,15,9],
+[6,12,13,7,15,11],
 [9,3,7,14],
 [3,7,14],
 [5,200,12],#check for boiler?
 [8,14,10,1],
-[2,10,9,3,8,5,7,1,4,12,11,13,6,14],
+[2,10,9,3,8,5,7,1,4,12,11,0,13,6,14,15],
 [12,3,5,8,7],
 [1,9,7,6],
-[7,14,2,13,4,10,9,3,8,5,1,12,11,0,6],
-[11,3,12,4,1,9,2,10,8,5,7,0,13,6,14],
+[7,14,2,13,15,4,10,9,3,8,5,1,12,11,0,6],
+[11,3,12,4,1,9,2,10,8,5,7,0,13,6,15,14],
 [0,11,3,4],
 [10,6,8,5,2,0,8],
 [4,12,0,9],
 #normal
-[111,3,12,4,1,9,2,10,8,5,7,0,13,6],
-[13,2,8,109],#check for 9 x 2
+[111,3,12,4,1,9,2,10,8,5,7,0,13,6,15,14],
+[113,2,8,109],#checks for 13x1, 9 x 2
 [5,150,12],#check for 0 x 2 + boiler
 [8,14,10,1],
-[106,12,13,7,11],#check for 6 x 1
+[106,12,13,7,15,11],#check for 6 x 1
 [150,11,3,4],#check for 0 x 2 + boiler
-[107,14,2,13,4,10,9,3,8,5,1,12,11,0,6],
-[14,7,13,10],
+[107,14,2,13,15,4,10,9,3,8,5,1,12,11,0,6],
+[14,7,13,15,10],
 [154,12,0,9],#check for 4 x 1 + angel door
 [160,106,8,5,2,0,8],#checks for 10 x 1 + library, 6 x 1 #hallway is twice here ...
 [101,109,7,6],#checks for 1 x 5, 9 x 4
 [112,103,5,8,7],#checks for 12 x 2, 3 x 2
 [109,3,7,14],#check for 9 x 4
-[102,160,109,3,8,5,7,1,4,12,11,0,13,6,14],
+[102,160,109,3,8,5,7,1,4,12,11,0,13,6,14,15],
 #fallback
-[14,8,2,3,10,9,5,13,7,1,4,12,11,0,6,14]]
+[14,8,2,3,10,9,5,13,7,1,4,12,11,0,6,14,15]]
 
 def orderCheck(currOrder):
     for i in upgradeOrders[currOrder]:
@@ -98,7 +99,7 @@ def orderCheck(currOrder):
             return iMod
     return -1
 
-pickedStats = [[0]*15 for _ in range(15)]
+pickedStats = [[0]*16 for _ in range(16)]
 for i in range(epochs):
     pickedRooms = set()
     #first pick
@@ -114,7 +115,7 @@ for i in range(epochs):
     pickedRooms.add(picked)
     
     #other picks 
-    for j in range(1,15):
+    for j in range(1,16):
         #first decide upgrade order
         picked = -1
         if(V_Mode):
@@ -137,7 +138,7 @@ for i in range(epochs):
                 pickedStats[picked][j]+=1;
                 pickedRooms.add(picked)
                 break
-        #if all failed a random 1 in 15 is picked, I'll skip that to see if any errors pop up
+        #If all failed a random 1 in 15 is picked. It shouldn't realistcally happen because the final upgrade order has all rooms, so I'll skip that to see if any errors pop up
     if i%1000 == 0:
         print(i)
     
